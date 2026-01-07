@@ -49,35 +49,57 @@ class _SplashScreenState extends State<SplashScreen> {
             ],
           ),
         ),
-        child: const Center(
+        child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                Icons.local_shipping,
-                size: 80,
-                color: ThemeConfig.goldPrimary,
+              // Logo
+              Container(
+                width: 200,
+                height: 200,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: ThemeConfig.goldPrimary.withOpacity(0.3),
+                      blurRadius: 20,
+                      spreadRadius: 5,
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: Image.asset(
+                    'assets/logo.jpeg',
+                    fit: BoxFit.cover,
+                  ),
+                ),
               ),
-              SizedBox(height: 24),
-              Text(
-                'DRIVER APP',
+              const SizedBox(height: 40),
+              
+              // App Name
+              const Text(
+                'NADYA LOKA',
                 style: TextStyle(
                   fontSize: 28,
-                  fontWeight: FontWeight.w700,
-                  color: ThemeConfig.textPrimary,
+                  fontWeight: FontWeight.bold,
+                  color: ThemeConfig.goldPrimary,
                   letterSpacing: 2,
                 ),
               ),
-              SizedBox(height: 8),
-              Text(
-                'Mining Backend System',
+              const SizedBox(height: 8),
+              const Text(
+                'Driver Checkpoint App',
                 style: TextStyle(
                   fontSize: 14,
                   color: ThemeConfig.textSecondary,
+                  letterSpacing: 1,
                 ),
               ),
-              SizedBox(height: 48),
-              CircularProgressIndicator(
+              const SizedBox(height: 60),
+              
+              // Loading indicator
+              const CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(
                   ThemeConfig.goldPrimary,
                 ),

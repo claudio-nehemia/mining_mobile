@@ -100,17 +100,32 @@ class CheckoutService {
       );
 
       debugPrint('Checkout request response: ${response.statusCode}');
+      debugPrint('Response body: ${response.body}');
 
       if (response.statusCode == 201) {
         final data = json.decode(response.body);
         return data['data'];
       } else {
         final error = json.decode(response.body);
-        throw Exception(error['message'] ?? 'Gagal membuat request checkout');
+        final message = error['message'] ?? 'Gagal membuat request checkout';
+        
+        // Tambahkan detail error jika ada
+        String detailMessage = message;
+        if (error['errors'] != null) {
+          final errors = error['errors'] as Map<String, dynamic>;
+          final errorDetails = errors.values.map((e) => e.toString()).join(', ');
+          detailMessage = '$message: $errorDetails';
+        }
+        
+        debugPrint('❌ Checkout error: $detailMessage');
+        throw Exception(detailMessage);
       }
     } catch (e) {
       debugPrint('❌ Error requesting checkout: $e');
-      rethrow;
+      if (e is Exception) {
+        rethrow;
+      }
+      throw Exception('Gagal mengirim request checkout: ${e.toString()}');
     }
   }
 

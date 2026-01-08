@@ -26,13 +26,27 @@ class SaldoService {
       );
 
       if (!response['success']) {
-        throw Exception(response['message'] ?? 'Failed to request top up');
+        final message = response['message'] ?? 'Failed to request top up';
+        
+        // Tambahkan detail error jika ada
+        String detailMessage = message;
+        if (response['errors'] != null) {
+          final errors = response['errors'] as Map<String, dynamic>;
+          final errorDetails = errors.values.map((e) => e.toString()).join(', ');
+          detailMessage = '$message: $errorDetails';
+        }
+        
+        debugPrint('❌ Top up error: $detailMessage');
+        throw Exception(detailMessage);
       }
       
       debugPrint('✅ Top up request created successfully');
     } catch (e) {
       debugPrint('❌ Error requesting top up: $e');
-      rethrow;
+      if (e is Exception) {
+        rethrow;
+      }
+      throw Exception('Gagal request top up: ${e.toString()}');
     }
   }
 

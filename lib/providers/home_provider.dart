@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -26,6 +27,11 @@ class HomeProvider extends ChangeNotifier {
   String? _checkoutRequestStatus; // 'pending', 'rejected', or null
   int? _checkoutRequestId;
   double? _checkoutBiaya;
+  
+  // Auto-refresh timer
+  Timer? _autoRefreshTimer;
+  bool _isAutoRefreshEnabled = true;
+  static const Duration _refreshInterval = Duration(seconds: 10);
 
   HomeDataModel? get homeData => _homeData;
   List<CheckPointModel> get nearbyCheckpoints => _nearbyCheckpoints;
@@ -39,6 +45,7 @@ class HomeProvider extends ChangeNotifier {
   String? get checkoutRequestStatus => _checkoutRequestStatus;
   int? get checkoutRequestId => _checkoutRequestId;
   double? get checkoutBiaya => _checkoutBiaya;
+  bool get isAutoRefreshEnabled => _isAutoRefreshEnabled;
 
   // Load home data
   Future<void> loadHomeData() async {
@@ -351,5 +358,73 @@ class HomeProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('❌ Failed to load checkout status: $e');
     }
+  }
+  
+  // Start auto-refresh
+  void startAutoRefresh() {
+    if (!_isAutoRefreshEnabled) return;
+    
+    _autoRefreshTimer?.cancel();
+    debugPrint('🔄 Starting auto-refresh (every ${_refreshInterval.inSeconds}s)');
+    
+    _autoRefreshTimer = Timer.periodic(_refreshInterval, (timer) async {
+      if (_isAutoRefreshEnabled && !_isLoading) {
+        debugPrint('🔄 Auto-refreshing data...');
+        await refreshData();
+      }
+    });
+  }
+  
+  // Stop auto-refresh
+  void stopAutoRefresh() {
+    debugPrint('⏹️ Stopping auto-refresh');
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = null;
+  }
+  
+  // Toggle auto-refresh
+  void toggleAutoRefresh(bool enabled) {
+    _isAutoRefreshEnabled = enabled;
+    if (enabled) {
+      startAutoRefresh();
+    } else {
+      stopAutoRefresh();
+    }
+    notifyListeners();
+  }
+  
+  // Refresh data (lebih ringan dari loadHomeData)
+  Future<void> refreshData() async {
+    try {
+      // Refresh data penting tanpa loading indicator untuk seamless UX
+      final oldSaldo = _homeData?.saldo?.amount;
+      
+      // Refresh home data (termasuk saldo)
+      _homeData = await HomeService.getHomeData();
+      
+      // Check jika ada perubahan saldo
+      final newSaldo = _homeData?.saldo?.amount;
+      if (oldSaldo != null && newSaldo != null && oldSaldo != newSaldo) {
+        debugPrint('💰 Saldo berubah: Rp $oldSaldo -> Rp $newSaldo');
+      }
+      
+      // Refresh status check-in dan checkout
+      await Future.wait([
+        loadCheckInStatus(),
+        loadCheckoutStatus(),
+        loadTodayHistory(),
+      ]);
+      
+      notifyListeners();
+    } catch (e) {
+      debugPrint('❌ Failed to refresh data: $e');
+      // Tidak set error message agar tidak mengganggu UX
+    }
+  }
+  
+  @override
+  void dispose() {
+    stopAutoRefresh();
+    super.dispose();
   }
 }

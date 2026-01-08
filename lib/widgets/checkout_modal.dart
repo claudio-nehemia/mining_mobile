@@ -71,14 +71,56 @@ class _CheckoutModalState extends State<CheckoutModal> {
           _isLoadingCheckpoints = false;
         });
         
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceAll('Exception: ', '')),
-            backgroundColor: Colors.red,
+        final errorMessage = e.toString().replaceAll('Exception: ', '');
+        
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            backgroundColor: ThemeConfig.bgCard,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Row(
+              children: const [
+                Icon(Icons.error_outline, color: Colors.red, size: 28),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Gagal Memuat Data',
+                    style: TextStyle(
+                      color: ThemeConfig.textPrimary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            content: Text(
+              errorMessage,
+              style: const TextStyle(
+                color: ThemeConfig.textSecondary,
+                fontSize: 14,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context); // Close dialog
+                  Navigator.pop(context); // Close modal
+                },
+                child: const Text(
+                  'Tutup',
+                  style: TextStyle(
+                    color: ThemeConfig.goldPrimary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
           ),
         );
-        
-        Navigator.pop(context);
       }
     }
   }
@@ -139,13 +181,61 @@ class _CheckoutModalState extends State<CheckoutModal> {
           _isLoading = false;
         });
         
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceAll('Exception: ', '')),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 4),
-          ),
-        );
+        final errorMessage = e.toString().replaceAll('Exception: ', '');
+        
+        // Jika error terlalu panjang, tampilkan dalam dialog
+        if (errorMessage.length > 100) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              backgroundColor: ThemeConfig.bgCard,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: Row(
+                children: const [
+                  Icon(Icons.error_outline, color: Colors.red),
+                  SizedBox(width: 8),
+                  Text(
+                    'Error',
+                    style: TextStyle(
+                      color: ThemeConfig.textPrimary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              content: Text(
+                errorMessage,
+                style: const TextStyle(
+                  color: ThemeConfig.textSecondary,
+                  fontSize: 14,
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    'OK',
+                    style: TextStyle(
+                      color: ThemeConfig.goldPrimary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(errorMessage),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
       }
     }
   }
@@ -201,7 +291,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                         ),
                         if (_activeCheckIn != null)
                           Text(
-                            'Dari: ${_activeCheckIn!['checkpoint_name']}',
+                            'Dari: ${_activeCheckIn!['checkpoint_name'] ?? 'Checkpoint (ID: ${_activeCheckIn!['checkpoint_id']})'}',
                             style: const TextStyle(
                               fontSize: 12,
                               color: ThemeConfig.textSecondary,
@@ -286,10 +376,14 @@ class _CheckoutModalState extends State<CheckoutModal> {
                                 ),
                               ),
                               items: _checkpoints.map((checkpoint) {
+                                final checkpointName = checkpoint['name'] ?? 'Checkpoint (ID: ${checkpoint['id']})';
+                                final distanceText = checkpoint['distance_text'] ?? '';
                                 return DropdownMenuItem<Map<String, dynamic>>(
                                   value: checkpoint,
                                   child: Text(
-                                    '${checkpoint['name']} (${checkpoint['distance_text']})',
+                                    '$checkpointName${distanceText.isNotEmpty ? ' ($distanceText)' : ''}',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 14),
                                   ),
                                 );
                               }).toList(),

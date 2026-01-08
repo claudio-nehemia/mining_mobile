@@ -18,18 +18,42 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isTogglingStatus = false;
   bool _isCheckingIn = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = Provider.of<HomeProvider>(context, listen: false);
       provider.loadHomeData();
       provider.loadCheckInStatus();
+      // Start auto-refresh setelah load initial data
+      provider.startAutoRefresh();
     });
+  }
+  
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    // Stop auto-refresh saat screen di-dispose
+    final provider = Provider.of<HomeProvider>(context, listen: false);
+    provider.stopAutoRefresh();
+    super.dispose();
+  }
+  
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final provider = Provider.of<HomeProvider>(context, listen: false);
+    
+    // Pause auto-refresh saat app di background, resume saat kembali foreground
+    if (state == AppLifecycleState.resumed) {
+      provider.startAutoRefresh();
+    } else if (state == AppLifecycleState.paused) {
+      provider.stopAutoRefresh();
+    }
   }
 
   String _formatCurrency(double amount) {
@@ -66,13 +90,61 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceAll('Exception: ', '')),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
-          ),
-        );
+        final errorMessage = e.toString().replaceAll('Exception: ', '');
+        
+        // Jika error panjang, tampilkan di dialog
+        if (errorMessage.length > 80) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              backgroundColor: ThemeConfig.bgCard,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: Row(
+                children: const [
+                  Icon(Icons.error_outline, color: Colors.red, size: 28),
+                  SizedBox(width: 12),
+                  Text(
+                    'Check-in Gagal',
+                    style: TextStyle(
+                      color: ThemeConfig.textPrimary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              content: Text(
+                errorMessage,
+                style: const TextStyle(
+                  color: ThemeConfig.textSecondary,
+                  fontSize: 14,
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    'OK',
+                    style: TextStyle(
+                      color: ThemeConfig.goldPrimary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(errorMessage),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
       }
     } finally {
       if (mounted) {
@@ -265,16 +337,66 @@ class _HomeScreenState extends State<HomeScreen> {
                     navigator.pop();
 
                     // Show error message
-                    messenger.showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Gagal mengirim request: ${e.toString()}',
-                          style: TextStyle(color: ThemeConfig.textPrimary),
+                    final errorMessage = e.toString().replaceAll('Exception: ', '');
+                    
+                    // Jika error panjang, tampilkan di dialog
+                    if (errorMessage.length > 80) {
+                      showDialog(
+                        context: context,
+                        builder: (dialogContext) => AlertDialog(
+                          backgroundColor: ThemeConfig.bgCard,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          title: Row(
+                            children: const [
+                              Icon(Icons.error_outline, color: Colors.red, size: 28),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Request Gagal',
+                                  style: TextStyle(
+                                    color: ThemeConfig.textPrimary,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          content: Text(
+                            errorMessage,
+                            style: const TextStyle(
+                              color: ThemeConfig.textSecondary,
+                              fontSize: 14,
+                            ),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(dialogContext),
+                              child: const Text(
+                                'OK',
+                                style: TextStyle(
+                                  color: ThemeConfig.goldPrimary,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        backgroundColor: Colors.red.shade700,
-                        duration: const Duration(seconds: 3),
-                      ),
-                    );
+                      );
+                    } else {
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            errorMessage,
+                            style: TextStyle(color: ThemeConfig.textPrimary),
+                          ),
+                          backgroundColor: Colors.red.shade700,
+                          duration: const Duration(seconds: 4),
+                        ),
+                      );
+                    }
                   }
                 }
               },
@@ -358,6 +480,38 @@ class _HomeScreenState extends State<HomeScreen> {
                       ],
                     ),
                     actions: [
+                      // Auto-refresh indicator
+                      Consumer<HomeProvider>(
+                        builder: (context, homeProvider, _) {
+                          return IconButton(
+                            icon: Icon(
+                              homeProvider.isAutoRefreshEnabled 
+                                ? Icons.sync 
+                                : Icons.sync_disabled,
+                              color: homeProvider.isAutoRefreshEnabled 
+                                ? ThemeConfig.goldPrimary 
+                                : ThemeConfig.textSecondary,
+                            ),
+                            onPressed: () {
+                              final enabled = !homeProvider.isAutoRefreshEnabled;
+                              homeProvider.toggleAutoRefresh(enabled);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    enabled 
+                                      ? 'Auto-refresh diaktifkan (setiap 10 detik)' 
+                                      : 'Auto-refresh dinonaktifkan',
+                                  ),
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                            },
+                            tooltip: homeProvider.isAutoRefreshEnabled 
+                              ? 'Nonaktifkan auto-refresh' 
+                              : 'Aktifkan auto-refresh',
+                          );
+                        },
+                      ),
                       IconButton(
                         icon: const Icon(Icons.refresh),
                         onPressed: () {
@@ -688,46 +842,145 @@ class _HomeScreenState extends State<HomeScreen> {
                         _isTogglingStatus = true;
                       });
                       
-                      final homeProvider = Provider.of<HomeProvider>(context, listen: false);
-                      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-                      
-                      bool success;
-                      if (value) {
-                        success = await homeProvider.turnOnStatus();
-                      } else {
-                        success = await homeProvider.turnOffStatus();
-                      }
-                      
-                      setState(() {
-                        _isTogglingStatus = false;
-                      });
-                      
-                      if (success) {
-                        // Reload driver data
-                        await authProvider.loadProfile();
+                      try {
+                        final homeProvider = Provider.of<HomeProvider>(context, listen: false);
+                        final authProvider = Provider.of<AuthProvider>(context, listen: false);
                         
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'Status berhasil diubah menjadi ${value ? "ON" : "OFF"}',
+                        bool success;
+                        if (value) {
+                          success = await homeProvider.turnOnStatus();
+                        } else {
+                          success = await homeProvider.turnOffStatus();
+                        }
+                        
+                        if (success) {
+                          // Reload driver data
+                          await authProvider.loadProfile();
+                          
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Status berhasil diubah menjadi ${value ? "ON" : "OFF"}',
+                                ),
+                                backgroundColor: ThemeConfig.successColor,
+                                duration: const Duration(seconds: 2),
                               ),
-                              backgroundColor: ThemeConfig.successColor,
-                              duration: const Duration(seconds: 2),
+                            );
+                          }
+                        } else {
+                          if (mounted) {
+                            final errorMessage = homeProvider.errorMessage ?? 'Gagal mengubah status';
+                            
+                            // Tampilkan error di dialog jika panjang
+                            if (errorMessage.length > 80) {
+                              showDialog(
+                                context: context,
+                                builder: (context) => AlertDialog(
+                                  backgroundColor: ThemeConfig.bgCard,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  title: Row(
+                                    children: const [
+                                      Icon(Icons.error_outline, color: Colors.red, size: 28),
+                                      SizedBox(width: 12),
+                                      Text(
+                                        'Error',
+                                        style: TextStyle(
+                                          color: ThemeConfig.textPrimary,
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  content: Text(
+                                    errorMessage,
+                                    style: const TextStyle(
+                                      color: ThemeConfig.textSecondary,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child: const Text(
+                                        'OK',
+                                        style: TextStyle(
+                                          color: ThemeConfig.goldPrimary,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(errorMessage),
+                                  backgroundColor: ThemeConfig.errorColor,
+                                  duration: const Duration(seconds: 4),
+                                ),
+                              );
+                            }
+                          }
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          final errorMessage = e.toString().replaceAll('Exception: ', '');
+                          
+                          showDialog(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              backgroundColor: ThemeConfig.bgCard,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              title: Row(
+                                children: const [
+                                  Icon(Icons.error_outline, color: Colors.red, size: 28),
+                                  SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      'Error',
+                                      style: TextStyle(
+                                        color: ThemeConfig.textPrimary,
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              content: Text(
+                                errorMessage,
+                                style: const TextStyle(
+                                  color: ThemeConfig.textSecondary,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context),
+                                  child: const Text(
+                                    'OK',
+                                    style: TextStyle(
+                                      color: ThemeConfig.goldPrimary,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           );
                         }
-                      } else {
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                homeProvider.errorMessage ?? 'Gagal mengubah status',
-                              ),
-                              backgroundColor: ThemeConfig.errorColor,
-                              duration: const Duration(seconds: 3),
-                            ),
-                          );
+                      } finally {
+                        if (mounted) {
+                          setState(() {
+                            _isTogglingStatus = false;
+                          });
                         }
                       }
                     },

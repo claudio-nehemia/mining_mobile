@@ -30,11 +30,25 @@ class CheckInService {
         debugPrint('✅ Check-in successful: ${response['data']}');
         return response['data'];
       } else {
-        throw Exception(response['message'] ?? 'Failed to check-in');
+        final message = response['message'] ?? 'Failed to check-in';
+        
+        // Tambahkan detail error jika ada
+        String detailMessage = message;
+        if (response['errors'] != null) {
+          final errors = response['errors'] as Map<String, dynamic>;
+          final errorDetails = errors.values.map((e) => e.toString()).join(', ');
+          detailMessage = '$message: $errorDetails';
+        }
+        
+        debugPrint('❌ Check-in error: $detailMessage');
+        throw Exception(detailMessage);
       }
     } catch (e) {
       debugPrint('❌ Error check-in: $e');
-      rethrow;
+      if (e is Exception) {
+        rethrow;
+      }
+      throw Exception('Gagal check-in: ${e.toString()}');
     }
   }
 

@@ -131,10 +131,23 @@ class HomeService {
       );
 
       if (!response['success']) {
-        throw Exception(response['message'] ?? 'Failed to turn on status');
+        final message = response['message'] ?? 'Failed to turn on status';
+        
+        // Tambahkan detail error jika ada
+        String detailMessage = message;
+        if (response['errors'] != null) {
+          final errors = response['errors'] as Map<String, dynamic>;
+          final errorDetails = errors.values.map((e) => e.toString()).join(', ');
+          detailMessage = '$message: $errorDetails';
+        }
+        
+        throw Exception(detailMessage);
       }
     } catch (e) {
-      rethrow;
+      if (e is Exception) {
+        rethrow;
+      }
+      throw Exception('Gagal mengaktifkan status: ${e.toString()}');
     }
   }
 
@@ -155,10 +168,23 @@ class HomeService {
       );
 
       if (!response['success']) {
-        throw Exception(response['message'] ?? 'Failed to turn off status');
+        final message = response['message'] ?? 'Failed to turn off status';
+        
+        // Tambahkan detail error jika ada
+        String detailMessage = message;
+        if (response['errors'] != null) {
+          final errors = response['errors'] as Map<String, dynamic>;
+          final errorDetails = errors.values.map((e) => e.toString()).join(', ');
+          detailMessage = '$message: $errorDetails';
+        }
+        
+        throw Exception(detailMessage);
       }
     } catch (e) {
-      rethrow;
+      if (e is Exception) {
+        rethrow;
+      }
+      throw Exception('Gagal menonaktifkan status: ${e.toString()}');
     }
   }
 }

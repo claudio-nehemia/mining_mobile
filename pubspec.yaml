@@ -1,5 +1,5 @@
-name: Checkpoint_driver_app
-description: "Driver mobile app for nadya loka"
+name: nadya_loka_truck_tracking
+description: "Nadya Loka Truck Tracking - Driver Mobile App"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -115,5 +115,18 @@ flutter_launcher_icons:
   android: true
   ios: true
   image_path: "assets/logo.jpeg"
+  min_sdk_android: 21
+  # Untuk Android adaptive icon, gunakan padding agar logo tidak kepotong
+  # Background putih dan logo di tengah
   adaptive_icon_background: "#FFFFFF"
+  # Adaptive icon foreground akan menggunakan logo yang sama
+  # Flutter launcher icons otomatis akan menambahkan safe zone
   adaptive_icon_foreground: "assets/logo.jpeg"
+  # Untuk iOS, remove alpha channel
+  remove_alpha_ios: true
+  # Web icon
+  web:
+    generate: true
+    image_path: "assets/logo.jpeg"
+    background_color: "#FFFFFF"
+    theme_color: "#D4AF37"

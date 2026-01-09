@@ -7,6 +7,7 @@ import '../providers/auth_provider.dart';
 import '../providers/home_provider.dart';
 import '../services/saldo_service.dart';
 import '../widgets/checkout_modal.dart';
+import '../widgets/turn_off_status_modal.dart';
 import 'profile_screen.dart';
 import 'saldo_history_screen.dart';
 import 'package:intl/intl.dart';
@@ -559,6 +560,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           _buildStatusCard(driver, authProvider, homeProvider),
                           const SizedBox(height: 16),
 
+                          // Maintenance Status Card (if truck is in maintenance)
+                          if (homeProvider.homeData?.truck?.status == 'maintenance')
+                            _buildMaintenanceCard(homeProvider),
+                          if (homeProvider.homeData?.truck?.status == 'maintenance')
+                            const SizedBox(height: 16),
+
                           // Check-In Status or GPS Location
                           if (homeProvider.isCheckedIn)
                             _buildCheckedInCard(homeProvider)
@@ -838,6 +845,81 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 : Switch(
                     value: isActive,
                     onChanged: (value) async {
+                      // If turning off, show modal first
+                      if (!value) {
+                        final result = await showDialog<Map<String, dynamic>>(
+                          context: context,
+                          builder: (context) => const TurnOffStatusModal(),
+                        );
+                        
+                        // If user cancelled, return early
+                        if (result == null) {
+                          return;
+                        }
+                        
+                        // Proceed with turn off status
+                        setState(() {
+                          _isTogglingStatus = true;
+                        });
+                        
+                        try {
+                          final homeProvider = Provider.of<HomeProvider>(context, listen: false);
+                          final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                          
+                          final success = await homeProvider.turnOffStatus(
+                            reasonType: result['reason_type'],
+                            reasonDetail: result['reason_detail'],
+                          );
+                          
+                          if (success) {
+                            // Reload driver data
+                            await authProvider.loadProfile();
+                            
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Status berhasil diubah menjadi OFF'),
+                                  backgroundColor: ThemeConfig.successColor,
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                            }
+                          } else {
+                            if (mounted) {
+                              final errorMessage = homeProvider.errorMessage ?? 'Gagal mengubah status';
+                              
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(errorMessage),
+                                  backgroundColor: ThemeConfig.errorColor,
+                                  duration: const Duration(seconds: 4),
+                                ),
+                              );
+                            }
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            final errorMessage = e.toString().replaceAll('Exception: ', '');
+                            
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(errorMessage),
+                                backgroundColor: ThemeConfig.errorColor,
+                                duration: const Duration(seconds: 4),
+                              ),
+                            );
+                          }
+                        } finally {
+                          if (mounted) {
+                            setState(() {
+                              _isTogglingStatus = false;
+                            });
+                          }
+                        }
+                        return;
+                      }
+                      
+                      // Turning ON - no modal needed
                       setState(() {
                         _isTogglingStatus = true;
                       });
@@ -850,7 +932,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         if (value) {
                           success = await homeProvider.turnOnStatus();
                         } else {
-                          success = await homeProvider.turnOffStatus();
+                          success = await homeProvider.turnOffStatus(
+                            reasonType: 'Lainnya',
+                            reasonDetail: 'Not specified',
+                          );
                         }
                         
                         if (success) {
@@ -987,6 +1072,214 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     activeColor: ThemeConfig.goldPrimary,
                     activeTrackColor: ThemeConfig.goldPrimary.withOpacity(0.5),
                   ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMaintenanceCard(HomeProvider homeProvider) {
+    return Card(
+      color: Colors.orange.withOpacity(0.1),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.build_circle_outlined,
+                    color: Colors.orange,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'UNIT DALAM MAINTENANCE',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.orange,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Unit sedang dalam perawatan',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: ThemeConfig.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Divider(color: ThemeConfig.borderPrimary, height: 1),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _isTogglingStatus
+                    ? null
+                    : () async {
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            backgroundColor: ThemeConfig.bgCard,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            title: Row(
+                              children: const [
+                                Icon(Icons.check_circle_outline, color: Colors.green, size: 28),
+                                SizedBox(width: 12),
+                                Text(
+                                  'Akhiri Maintenance?',
+                                  style: TextStyle(
+                                    color: ThemeConfig.textPrimary,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            content: const Text(
+                              'Unit akan kembali ke status aktif dan siap beroperasi.',
+                              style: TextStyle(
+                                color: ThemeConfig.textSecondary,
+                                fontSize: 14,
+                              ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context, false),
+                                child: const Text(
+                                  'Batal',
+                                  style: TextStyle(
+                                    color: ThemeConfig.textSecondary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              ElevatedButton(
+                                onPressed: () => Navigator.pop(context, true),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                child: const Text(
+                                  'Ya, Akhiri',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+
+                        if (confirm == true) {
+                          setState(() {
+                            _isTogglingStatus = true;
+                          });
+
+                          try {
+                            final success = await homeProvider.endMaintenance();
+                            final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+                            if (success) {
+                              await authProvider.loadProfile();
+
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('✓ Maintenance berhasil diakhiri. Status kembali aktif!'),
+                                    backgroundColor: Colors.green,
+                                    duration: Duration(seconds: 3),
+                                  ),
+                                );
+                              }
+                            } else {
+                              if (mounted) {
+                                final errorMessage = homeProvider.errorMessage ?? 'Gagal mengakhiri maintenance';
+
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(errorMessage),
+                                    backgroundColor: ThemeConfig.errorColor,
+                                    duration: const Duration(seconds: 4),
+                                  ),
+                                );
+                              }
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              final errorMessage = e.toString().replaceAll('Exception: ', '');
+
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(errorMessage),
+                                  backgroundColor: ThemeConfig.errorColor,
+                                  duration: const Duration(seconds: 4),
+                                ),
+                              );
+                            }
+                          } finally {
+                            if (mounted) {
+                              setState(() {
+                                _isTogglingStatus = false;
+                              });
+                            }
+                          }
+                        }
+                      },
+                icon: _isTogglingStatus
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : const Icon(Icons.check_circle, size: 20),
+                label: Text(
+                  _isTogglingStatus ? 'Mengakhiri...' : 'AKHIRI MAINTENANCE',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  elevation: 2,
+                ),
+              ),
+            ),
           ],
         ),
       ),

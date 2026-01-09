@@ -31,4 +31,18 @@ class UnitTruckModel {
       'status': status,
     };
   }
+
+  UnitTruckModel copyWith({
+    int? id,
+    String? noUnit,
+    String? plateNumber,
+    String? status,
+  }) {
+    return UnitTruckModel(
+      id: id ?? this.id,
+      noUnit: noUnit ?? this.noUnit,
+      plateNumber: plateNumber ?? this.plateNumber,
+      status: status ?? this.status,
+    );
+  }
 }

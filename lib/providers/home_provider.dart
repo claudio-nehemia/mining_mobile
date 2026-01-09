@@ -162,10 +162,16 @@ class HomeProvider extends ChangeNotifier {
   }
 
   // Turn off status
-  Future<bool> turnOffStatus() async {
+  Future<bool> turnOffStatus({
+    required String reasonType,
+    String? reasonDetail,
+  }) async {
     try {
       debugPrint('🔄 Turning off status...');
-      await HomeService.turnOffStatus();
+      await HomeService.turnOffStatus(
+        reasonType: reasonType,
+        reasonDetail: reasonDetail,
+      );
       
       // Stop location tracking
       LocationTrackingService.stopTracking();
@@ -184,6 +190,35 @@ class HomeProvider extends ChangeNotifier {
       return true;
     } catch (e) {
       debugPrint('❌ Failed to turn off status: $e');
+      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // End maintenance
+  Future<bool> endMaintenance() async {
+    try {
+      debugPrint('🔄 Ending maintenance...');
+      await HomeService.endMaintenance();
+      
+      // Start location tracking when status becomes active
+      await LocationTrackingService.startTracking();
+      
+      // Update status using copyWith
+      if (_homeData != null) {
+        _homeData = HomeDataModel(
+          driver: _homeData!.driver.copyWith(status: 'active'),
+          truck: _homeData!.truck?.copyWith(status: 'active'),
+          saldo: _homeData!.saldo,
+        );
+        debugPrint('✅ Maintenance ended, status updated to active');
+        notifyListeners();
+      }
+      
+      return true;
+    } catch (e) {
+      debugPrint('❌ Failed to end maintenance: $e');
       _errorMessage = e.toString().replaceAll('Exception: ', '');
       notifyListeners();
       return false;

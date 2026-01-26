@@ -8,6 +8,7 @@ import '../providers/home_provider.dart';
 import '../services/saldo_service.dart';
 import '../widgets/checkout_modal.dart';
 import '../widgets/turn_off_status_modal.dart';
+import '../widgets/checkpoint_selection_modal.dart'; // Add this import
 import 'profile_screen.dart';
 import 'saldo_history_screen.dart';
 import 'package:intl/intl.dart';
@@ -35,7 +36,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       provider.startAutoRefresh();
     });
   }
-  
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -44,11 +45,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     provider.stopAutoRefresh();
     super.dispose();
   }
-  
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final provider = Provider.of<HomeProvider>(context, listen: false);
-    
+
     // Pause auto-refresh saat app di background, resume saat kembali foreground
     if (state == AppLifecycleState.resumed) {
       provider.startAutoRefresh();
@@ -66,86 +67,135 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return formatter.format(amount);
   }
 
-  Future<void> _performCheckIn() async {
+  Future<void> _showCheckpointSelectionModal() async {
     if (_isCheckingIn) return;
-    
-    setState(() {
-      _isCheckingIn = true;
-    });
 
     try {
+      setState(() {
+        _isCheckingIn = true;
+      });
+
+      // Load checkpoints first
       final homeProvider = Provider.of<HomeProvider>(context, listen: false);
-      final result = await homeProvider.checkIn();
-      
-      if (mounted) {
+      final checkpoints = await homeProvider.loadAllCheckpoints();
+
+      if (!mounted) return;
+
+      if (checkpoints.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Check-in berhasil di ${result?['checkpoint_name'] ?? 'checkpoint'}\n'
-              'Jarak: ${result?['distance']?.toStringAsFixed(2) ?? '0'} km',
-            ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 3),
+          const SnackBar(
+            content: Text('Tidak ada checkpoint tersedia'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
           ),
         );
+        return;
       }
+
+      // Show modal
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        barrierColor: Colors.black54,
+        builder: (context) => CheckpointSelectionModal(
+          checkpoints: checkpoints,
+          onCheckpointSelected: (checkpoint) async {
+            // Perform check-in
+            try {
+              final result = await homeProvider.checkInWithCheckpoint(
+                checkpoint.id,
+              );
+
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Check-in berhasil di ${result?['checkpoint_name'] ?? 'checkpoint'}\n'
+                      'Jarak: ${result?['distance']?.toStringAsFixed(2) ?? '0'} km',
+                    ),
+                    backgroundColor: Colors.green,
+                    duration: const Duration(seconds: 3),
+                  ),
+                );
+              }
+            } catch (e) {
+              if (mounted) {
+                final errorMessage = e.toString().replaceAll('Exception: ', '');
+
+                // Jika error panjang, tampilkan di dialog
+                if (errorMessage.length > 80) {
+                  showDialog(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      backgroundColor: ThemeConfig.bgCard,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      title: Row(
+                        children: const [
+                          Icon(
+                            Icons.error_outline,
+                            color: Colors.red,
+                            size: 28,
+                          ),
+                          SizedBox(width: 12),
+                          Text(
+                            'Check-in Gagal',
+                            style: TextStyle(
+                              color: ThemeConfig.textPrimary,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      content: Text(
+                        errorMessage,
+                        style: const TextStyle(
+                          color: ThemeConfig.textSecondary,
+                          fontSize: 14,
+                        ),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text(
+                            'OK',
+                            style: TextStyle(
+                              color: ThemeConfig.goldPrimary,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(errorMessage),
+                      backgroundColor: Colors.red,
+                      duration: const Duration(seconds: 4),
+                    ),
+                  );
+                }
+              }
+            }
+          },
+        ),
+      );
     } catch (e) {
       if (mounted) {
         final errorMessage = e.toString().replaceAll('Exception: ', '');
-        
-        // Jika error panjang, tampilkan di dialog
-        if (errorMessage.length > 80) {
-          showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              backgroundColor: ThemeConfig.bgCard,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              title: Row(
-                children: const [
-                  Icon(Icons.error_outline, color: Colors.red, size: 28),
-                  SizedBox(width: 12),
-                  Text(
-                    'Check-in Gagal',
-                    style: TextStyle(
-                      color: ThemeConfig.textPrimary,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-              content: Text(
-                errorMessage,
-                style: const TextStyle(
-                  color: ThemeConfig.textSecondary,
-                  fontSize: 14,
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    'OK',
-                    style: TextStyle(
-                      color: ThemeConfig.goldPrimary,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(errorMessage),
-              backgroundColor: Colors.red,
-              duration: const Duration(seconds: 4),
-            ),
-          );
-        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal memuat checkpoint: $errorMessage'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
       }
     } finally {
       if (mounted) {
@@ -155,6 +205,96 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     }
   }
+
+  // Future<void> _performCheckIn() async {
+  //   if (_isCheckingIn) return;
+
+  //   setState(() {
+  //     _isCheckingIn = true;
+  //   });
+
+  //   try {
+  //     final homeProvider = Provider.of<HomeProvider>(context, listen: false);
+  //     final result = await homeProvider.checkIn();
+
+  //     if (mounted) {
+  //       ScaffoldMessenger.of(context).showSnackBar(
+  //         SnackBar(
+  //           content: Text(
+  //             'Check-in berhasil di ${result?['checkpoint_name'] ?? 'checkpoint'}\n'
+  //             'Jarak: ${result?['distance']?.toStringAsFixed(2) ?? '0'} km',
+  //           ),
+  //           backgroundColor: Colors.green,
+  //           duration: const Duration(seconds: 3),
+  //         ),
+  //       );
+  //     }
+  //   } catch (e) {
+  //     if (mounted) {
+  //       final errorMessage = e.toString().replaceAll('Exception: ', '');
+
+  //       // Jika error panjang, tampilkan di dialog
+  //       if (errorMessage.length > 80) {
+  //         showDialog(
+  //           context: context,
+  //           builder: (context) => AlertDialog(
+  //             backgroundColor: ThemeConfig.bgCard,
+  //             shape: RoundedRectangleBorder(
+  //               borderRadius: BorderRadius.circular(16),
+  //             ),
+  //             title: Row(
+  //               children: const [
+  //                 Icon(Icons.error_outline, color: Colors.red, size: 28),
+  //                 SizedBox(width: 12),
+  //                 Text(
+  //                   'Check-in Gagal',
+  //                   style: TextStyle(
+  //                     color: ThemeConfig.textPrimary,
+  //                     fontSize: 18,
+  //                     fontWeight: FontWeight.bold,
+  //                   ),
+  //                 ),
+  //               ],
+  //             ),
+  //             content: Text(
+  //               errorMessage,
+  //               style: const TextStyle(
+  //                 color: ThemeConfig.textSecondary,
+  //                 fontSize: 14,
+  //               ),
+  //             ),
+  //             actions: [
+  //               TextButton(
+  //                 onPressed: () => Navigator.pop(context),
+  //                 child: const Text(
+  //                   'OK',
+  //                   style: TextStyle(
+  //                     color: ThemeConfig.goldPrimary,
+  //                     fontWeight: FontWeight.bold,
+  //                   ),
+  //                 ),
+  //               ),
+  //             ],
+  //           ),
+  //         );
+  //       } else {
+  //         ScaffoldMessenger.of(context).showSnackBar(
+  //           SnackBar(
+  //             content: Text(errorMessage),
+  //             backgroundColor: Colors.red,
+  //             duration: const Duration(seconds: 4),
+  //           ),
+  //         );
+  //       }
+  //     }
+  //   } finally {
+  //     if (mounted) {
+  //       setState(() {
+  //         _isCheckingIn = false;
+  //       });
+  //     }
+  //   }
+  // }
 
   void _showCheckoutModal() {
     showModalBottomSheet(
@@ -212,13 +352,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 TextFormField(
                   controller: amountController,
                   keyboardType: TextInputType.number,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                  ],
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   style: TextStyle(color: ThemeConfig.textPrimary),
                   decoration: InputDecoration(
                     hintText: 'Contoh: 100000',
-                    hintStyle: TextStyle(color: ThemeConfig.textSecondary.withOpacity(0.5)),
+                    hintStyle: TextStyle(
+                      color: ThemeConfig.textSecondary.withOpacity(0.5),
+                    ),
                     prefixText: 'Rp ',
                     prefixStyle: TextStyle(
                       color: ThemeConfig.textPrimary,
@@ -245,16 +385,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                     errorBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(
-                        color: Colors.red,
-                      ),
+                      borderSide: const BorderSide(color: Colors.red),
                     ),
                     focusedErrorBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(
-                        color: Colors.red,
-                        width: 2,
-                      ),
+                      borderSide: const BorderSide(color: Colors.red, width: 2),
                     ),
                   ),
                   validator: (value) {
@@ -301,7 +436,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   final amount = double.parse(amountController.text);
                   final navigator = Navigator.of(context);
                   final messenger = ScaffoldMessenger.of(context);
-                  
+
                   // Close input dialog first
                   navigator.pop();
 
@@ -338,8 +473,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     navigator.pop();
 
                     // Show error message
-                    final errorMessage = e.toString().replaceAll('Exception: ', '');
-                    
+                    final errorMessage = e.toString().replaceAll(
+                      'Exception: ',
+                      '',
+                    );
+
                     // Jika error panjang, tampilkan di dialog
                     if (errorMessage.length > 80) {
                       showDialog(
@@ -351,7 +489,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           ),
                           title: Row(
                             children: const [
-                              Icon(Icons.error_outline, color: Colors.red, size: 28),
+                              Icon(
+                                Icons.error_outline,
+                                color: Colors.red,
+                                size: 28,
+                              ),
                               SizedBox(width: 12),
                               Expanded(
                                 child: Text(
@@ -407,14 +549,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
               ),
               child: const Text(
                 'Kirim Request',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ),
           ],
@@ -431,10 +573,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              ThemeConfig.bgPrimary,
-              ThemeConfig.bgSecondary,
-            ],
+            colors: [ThemeConfig.bgPrimary, ThemeConfig.bgSecondary],
           ),
         ),
         child: SafeArea(
@@ -486,37 +625,41 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         builder: (context, homeProvider, _) {
                           return IconButton(
                             icon: Icon(
-                              homeProvider.isAutoRefreshEnabled 
-                                ? Icons.sync 
-                                : Icons.sync_disabled,
-                              color: homeProvider.isAutoRefreshEnabled 
-                                ? ThemeConfig.goldPrimary 
-                                : ThemeConfig.textSecondary,
+                              homeProvider.isAutoRefreshEnabled
+                                  ? Icons.sync
+                                  : Icons.sync_disabled,
+                              color: homeProvider.isAutoRefreshEnabled
+                                  ? ThemeConfig.goldPrimary
+                                  : ThemeConfig.textSecondary,
                             ),
                             onPressed: () {
-                              final enabled = !homeProvider.isAutoRefreshEnabled;
+                              final enabled =
+                                  !homeProvider.isAutoRefreshEnabled;
                               homeProvider.toggleAutoRefresh(enabled);
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: Text(
-                                    enabled 
-                                      ? 'Auto-refresh diaktifkan (setiap 10 detik)' 
-                                      : 'Auto-refresh dinonaktifkan',
+                                    enabled
+                                        ? 'Auto-refresh diaktifkan (setiap 10 detik)'
+                                        : 'Auto-refresh dinonaktifkan',
                                   ),
                                   duration: const Duration(seconds: 2),
                                 ),
                               );
                             },
-                            tooltip: homeProvider.isAutoRefreshEnabled 
-                              ? 'Nonaktifkan auto-refresh' 
-                              : 'Aktifkan auto-refresh',
+                            tooltip: homeProvider.isAutoRefreshEnabled
+                                ? 'Nonaktifkan auto-refresh'
+                                : 'Aktifkan auto-refresh',
                           );
                         },
                       ),
                       IconButton(
                         icon: const Icon(Icons.refresh),
                         onPressed: () {
-                          Provider.of<HomeProvider>(context, listen: false).loadHomeData();
+                          Provider.of<HomeProvider>(
+                            context,
+                            listen: false,
+                          ).loadHomeData();
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text('Memuat ulang data...'),
@@ -561,9 +704,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           const SizedBox(height: 16),
 
                           // Maintenance Status Card (if truck is in maintenance)
-                          if (homeProvider.homeData?.truck?.status == 'maintenance')
+                          if (homeProvider.homeData?.truck?.status ==
+                              'maintenance')
                             _buildMaintenanceCard(homeProvider),
-                          if (homeProvider.homeData?.truck?.status == 'maintenance')
+                          if (homeProvider.homeData?.truck?.status ==
+                              'maintenance')
                             const SizedBox(height: 16),
 
                           // Check-In Status or GPS Location
@@ -612,11 +757,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 color: ThemeConfig.goldPrimary,
                 borderRadius: BorderRadius.circular(25),
               ),
-              child: const Icon(
-                Icons.person,
-                size: 28,
-                color: Colors.black,
-              ),
+              child: const Icon(Icons.person, size: 28, color: Colors.black),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -734,7 +875,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     icon: const Icon(Icons.add, size: 18),
                     label: const Text('Top Up'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: ThemeConfig.goldPrimary.withOpacity(0.15),
+                      backgroundColor: ThemeConfig.goldPrimary.withOpacity(
+                        0.15,
+                      ),
                       foregroundColor: ThemeConfig.goldPrimary,
                       elevation: 0,
                       padding: const EdgeInsets.symmetric(vertical: 12),
@@ -784,7 +927,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildStatusCard(driver, AuthProvider authProvider, HomeProvider homeProvider) {
+  Widget _buildStatusCard(
+    driver,
+    AuthProvider authProvider,
+    HomeProvider homeProvider,
+  ) {
     final isActive = driver?.status == 'active';
 
     return Card(
@@ -803,7 +950,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
               child: Icon(
                 Icons.power_settings_new,
-                color: isActive ? ThemeConfig.successColor : ThemeConfig.errorColor,
+                color: isActive
+                    ? ThemeConfig.successColor
+                    : ThemeConfig.errorColor,
                 size: 24,
               ),
             ),
@@ -851,34 +1000,42 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           context: context,
                           builder: (context) => const TurnOffStatusModal(),
                         );
-                        
+
                         // If user cancelled, return early
                         if (result == null) {
                           return;
                         }
-                        
+
                         // Proceed with turn off status
                         setState(() {
                           _isTogglingStatus = true;
                         });
-                        
+
                         try {
-                          final homeProvider = Provider.of<HomeProvider>(context, listen: false);
-                          final authProvider = Provider.of<AuthProvider>(context, listen: false);
-                          
+                          final homeProvider = Provider.of<HomeProvider>(
+                            context,
+                            listen: false,
+                          );
+                          final authProvider = Provider.of<AuthProvider>(
+                            context,
+                            listen: false,
+                          );
+
                           final success = await homeProvider.turnOffStatus(
                             reasonType: result['reason_type'],
                             reasonDetail: result['reason_detail'],
                           );
-                          
+
                           if (success) {
                             // Reload driver data
                             await authProvider.loadProfile();
-                            
+
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text('Status berhasil diubah menjadi OFF'),
+                                  content: Text(
+                                    'Status berhasil diubah menjadi OFF',
+                                  ),
                                   backgroundColor: ThemeConfig.successColor,
                                   duration: Duration(seconds: 2),
                                 ),
@@ -886,8 +1043,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             }
                           } else {
                             if (mounted) {
-                              final errorMessage = homeProvider.errorMessage ?? 'Gagal mengubah status';
-                              
+                              final errorMessage =
+                                  homeProvider.errorMessage ??
+                                  'Gagal mengubah status';
+
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: Text(errorMessage),
@@ -899,8 +1058,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           }
                         } catch (e) {
                           if (mounted) {
-                            final errorMessage = e.toString().replaceAll('Exception: ', '');
-                            
+                            final errorMessage = e.toString().replaceAll(
+                              'Exception: ',
+                              '',
+                            );
+
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text(errorMessage),
@@ -918,16 +1080,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         }
                         return;
                       }
-                      
+
                       // Turning ON - no modal needed
                       setState(() {
                         _isTogglingStatus = true;
                       });
-                      
+
                       try {
-                        final homeProvider = Provider.of<HomeProvider>(context, listen: false);
-                        final authProvider = Provider.of<AuthProvider>(context, listen: false);
-                        
+                        final homeProvider = Provider.of<HomeProvider>(
+                          context,
+                          listen: false,
+                        );
+                        final authProvider = Provider.of<AuthProvider>(
+                          context,
+                          listen: false,
+                        );
+
                         bool success;
                         if (value) {
                           success = await homeProvider.turnOnStatus();
@@ -937,11 +1105,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             reasonDetail: 'Not specified',
                           );
                         }
-                        
+
                         if (success) {
                           // Reload driver data
                           await authProvider.loadProfile();
-                          
+
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
@@ -955,8 +1123,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           }
                         } else {
                           if (mounted) {
-                            final errorMessage = homeProvider.errorMessage ?? 'Gagal mengubah status';
-                            
+                            final errorMessage =
+                                homeProvider.errorMessage ??
+                                'Gagal mengubah status';
+
                             // Tampilkan error di dialog jika panjang
                             if (errorMessage.length > 80) {
                               showDialog(
@@ -968,7 +1138,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                   ),
                                   title: Row(
                                     children: const [
-                                      Icon(Icons.error_outline, color: Colors.red, size: 28),
+                                      Icon(
+                                        Icons.error_outline,
+                                        color: Colors.red,
+                                        size: 28,
+                                      ),
                                       SizedBox(width: 12),
                                       Text(
                                         'Error',
@@ -1014,8 +1188,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         }
                       } catch (e) {
                         if (mounted) {
-                          final errorMessage = e.toString().replaceAll('Exception: ', '');
-                          
+                          final errorMessage = e.toString().replaceAll(
+                            'Exception: ',
+                            '',
+                          );
+
                           showDialog(
                             context: context,
                             builder: (context) => AlertDialog(
@@ -1025,7 +1202,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               ),
                               title: Row(
                                 children: const [
-                                  Icon(Icons.error_outline, color: Colors.red, size: 28),
+                                  Icon(
+                                    Icons.error_outline,
+                                    color: Colors.red,
+                                    size: 28,
+                                  ),
                                   SizedBox(width: 12),
                                   Expanded(
                                     child: Text(
@@ -1078,206 +1259,52 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  // Di home_screen.dart, hapus fungsi _buildMaintenanceCard yang lama
+  // dan ganti dengan yang baru ini (tombol maintenance sudah dihapus)
+
   Widget _buildMaintenanceCard(HomeProvider homeProvider) {
     return Card(
       color: Colors.orange.withOpacity(0.1),
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.build_circle_outlined,
-                    color: Colors.orange,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'UNIT DALAM MAINTENANCE',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.orange,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'Unit sedang dalam perawatan',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: ThemeConfig.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.build_circle_outlined,
+                color: Colors.orange,
+                size: 24,
+              ),
             ),
-            const SizedBox(height: 16),
-            const Divider(color: ThemeConfig.borderPrimary, height: 1),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _isTogglingStatus
-                    ? null
-                    : () async {
-                        final confirm = await showDialog<bool>(
-                          context: context,
-                          builder: (context) => AlertDialog(
-                            backgroundColor: ThemeConfig.bgCard,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            title: Row(
-                              children: const [
-                                Icon(Icons.check_circle_outline, color: Colors.green, size: 28),
-                                SizedBox(width: 12),
-                                Text(
-                                  'Akhiri Maintenance?',
-                                  style: TextStyle(
-                                    color: ThemeConfig.textPrimary,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            content: const Text(
-                              'Unit akan kembali ke status aktif dan siap beroperasi.',
-                              style: TextStyle(
-                                color: ThemeConfig.textSecondary,
-                                fontSize: 14,
-                              ),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context, false),
-                                child: const Text(
-                                  'Batal',
-                                  style: TextStyle(
-                                    color: ThemeConfig.textSecondary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                              ElevatedButton(
-                                onPressed: () => Navigator.pop(context, true),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.green,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                ),
-                                child: const Text(
-                                  'Ya, Akhiri',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-
-                        if (confirm == true) {
-                          setState(() {
-                            _isTogglingStatus = true;
-                          });
-
-                          try {
-                            final success = await homeProvider.endMaintenance();
-                            final authProvider = Provider.of<AuthProvider>(context, listen: false);
-
-                            if (success) {
-                              await authProvider.loadProfile();
-
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('✓ Maintenance berhasil diakhiri. Status kembali aktif!'),
-                                    backgroundColor: Colors.green,
-                                    duration: Duration(seconds: 3),
-                                  ),
-                                );
-                              }
-                            } else {
-                              if (mounted) {
-                                final errorMessage = homeProvider.errorMessage ?? 'Gagal mengakhiri maintenance';
-
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(errorMessage),
-                                    backgroundColor: ThemeConfig.errorColor,
-                                    duration: const Duration(seconds: 4),
-                                  ),
-                                );
-                              }
-                            }
-                          } catch (e) {
-                            if (mounted) {
-                              final errorMessage = e.toString().replaceAll('Exception: ', '');
-
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(errorMessage),
-                                  backgroundColor: ThemeConfig.errorColor,
-                                  duration: const Duration(seconds: 4),
-                                ),
-                              );
-                            }
-                          } finally {
-                            if (mounted) {
-                              setState(() {
-                                _isTogglingStatus = false;
-                              });
-                            }
-                          }
-                        }
-                      },
-                icon: _isTogglingStatus
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : const Icon(Icons.check_circle, size: 20),
-                label: Text(
-                  _isTogglingStatus ? 'Mengakhiri...' : 'AKHIRI MAINTENANCE',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.5,
+            const SizedBox(width: 16),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'UNIT DALAM MAINTENANCE',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.orange,
+                      letterSpacing: 0.5,
+                    ),
                   ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+                  SizedBox(height: 2),
+                  Text(
+                    'Aktifkan status untuk mengakhiri maintenance',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: ThemeConfig.textSecondary,
+                    ),
                   ),
-                  elevation: 2,
-                ),
+                ],
               ),
             ),
           ],
@@ -1347,7 +1374,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final isRealGPS = position != null;
         final lat = position?.latitude ?? -6.2088;
         final lng = position?.longitude ?? 106.8456;
-        
+
         return Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -1357,15 +1384,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   width: 48,
                   height: 48,
                   decoration: BoxDecoration(
-                    color: isRealGPS 
+                    color: isRealGPS
                         ? ThemeConfig.successColor.withOpacity(0.15)
                         : const Color(0xFFFF9800).withOpacity(0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(
                     Icons.gps_fixed,
-                    color: isRealGPS 
-                        ? ThemeConfig.successColor 
+                    color: isRealGPS
+                        ? ThemeConfig.successColor
                         : const Color(0xFFFF9800),
                     size: 24,
                   ),
@@ -1376,7 +1403,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        isRealGPS ? 'Lokasi GPS Real' : 'Lokasi GPS (Dummy - Jakarta)',
+                        isRealGPS
+                            ? 'Lokasi GPS Real'
+                            : 'Lokasi GPS (Dummy - Jakarta)',
                         style: const TextStyle(
                           fontSize: 10,
                           color: ThemeConfig.textSecondary,
@@ -1407,14 +1436,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: isRealGPS
                         ? ThemeConfig.successColor.withOpacity(0.15)
                         : const Color(0xFFFF9800).withOpacity(0.15),
                     border: Border.all(
-                      color: isRealGPS 
-                          ? ThemeConfig.successColor 
+                      color: isRealGPS
+                          ? ThemeConfig.successColor
                           : const Color(0xFFFF9800),
                     ),
                     borderRadius: BorderRadius.circular(4),
@@ -1424,8 +1456,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
-                      color: isRealGPS 
-                          ? ThemeConfig.successColor 
+                      color: isRealGPS
+                          ? ThemeConfig.successColor
                           : const Color(0xFFFF9800),
                     ),
                   ),
@@ -1440,9 +1472,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Widget _buildCheckInButton(HomeProvider homeProvider) {
     // Show status jika ada pending/rejected request
-    if (homeProvider.isCheckedIn && homeProvider.checkoutRequestStatus != null) {
+    if (homeProvider.isCheckedIn &&
+        homeProvider.checkoutRequestStatus != null) {
       final status = homeProvider.checkoutRequestStatus;
-      
+
       if (status == 'pending') {
         return Container(
           width: double.infinity,
@@ -1498,10 +1531,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 SizedBox(width: 12),
                 Text(
                   'Request Checkout Ditolak - Coba Lagi',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
                 ),
               ],
             ),
@@ -1514,19 +1544,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       width: double.infinity,
       height: 56,
       child: ElevatedButton(
-        onPressed: homeProvider.isCheckedIn 
-            ? _showCheckoutModal 
-            : (_isCheckingIn ? null : _performCheckIn),
+        onPressed: homeProvider.isCheckedIn
+            ? _showCheckoutModal
+            : (_isCheckingIn ? null : _showCheckpointSelectionModal),
         style: ElevatedButton.styleFrom(
-          backgroundColor: homeProvider.isCheckedIn 
-              ? Colors.orange 
+          backgroundColor: homeProvider.isCheckedIn
+              ? Colors.orange
               : ThemeConfig.goldPrimary,
           foregroundColor: Colors.white,
           disabledBackgroundColor: ThemeConfig.textSecondary,
           disabledForegroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           elevation: 0,
         ),
         child: _isCheckingIn
@@ -1602,38 +1630,42 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
           )
         else
-          ...checkpoints.take(3).map((checkpoint) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Card(
-                  child: ListTile(
-                    leading: Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: checkpoint.distance < 0.1
-                            ? ThemeConfig.successColor
-                            : ThemeConfig.goldPrimary,
-                        shape: BoxShape.circle,
+          ...checkpoints
+              .take(3)
+              .map(
+                (checkpoint) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Card(
+                    child: ListTile(
+                      leading: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: checkpoint.distance < 0.1
+                              ? ThemeConfig.successColor
+                              : ThemeConfig.goldPrimary,
+                          shape: BoxShape.circle,
+                        ),
                       ),
-                    ),
-                    title: Text(
-                      checkpoint.name,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: ThemeConfig.textPrimary,
+                      title: Text(
+                        checkpoint.name,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: ThemeConfig.textPrimary,
+                        ),
                       ),
-                    ),
-                    trailing: Text(
-                      checkpoint.distanceText,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: ThemeConfig.textSecondary,
+                      trailing: Text(
+                        checkpoint.distanceText,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: ThemeConfig.textSecondary,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              )),
+              ),
       ],
     );
   }
@@ -1646,11 +1678,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       children: [
         Row(
           children: const [
-            Icon(
-              Icons.history,
-              color: ThemeConfig.goldPrimary,
-              size: 20,
-            ),
+            Icon(Icons.history, color: ThemeConfig.goldPrimary, size: 20),
             SizedBox(width: 8),
             Text(
               'RIWAYAT HARI INI',
@@ -1680,55 +1708,57 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
           )
         else
-          ...history.map((activity) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Card(
-                  child: ListTile(
-                    leading: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: activity.lastActivity == 'check_out'
-                            ? ThemeConfig.goldPrimary.withOpacity(0.15)
-                            : ThemeConfig.successColor.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        activity.lastActivity == 'check_out'
-                            ? Icons.logout
-                            : Icons.login,
-                        color: activity.lastActivity == 'check_out'
-                            ? ThemeConfig.goldPrimary
-                            : ThemeConfig.successColor,
-                        size: 20,
-                      ),
+          ...history.map(
+            (activity) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Card(
+                child: ListTile(
+                  leading: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: activity.lastActivity == 'check_out'
+                          ? ThemeConfig.goldPrimary.withOpacity(0.15)
+                          : ThemeConfig.successColor.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                    title: Text(
-                      activity.checkpointName,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: ThemeConfig.textPrimary,
-                      ),
+                    child: Icon(
+                      activity.lastActivity == 'check_out'
+                          ? Icons.logout
+                          : Icons.login,
+                      color: activity.lastActivity == 'check_out'
+                          ? ThemeConfig.goldPrimary
+                          : ThemeConfig.successColor,
+                      size: 20,
                     ),
-                    subtitle: Text(
-                      '${activity.lastActivity == "check_out" ? "Check-Out" : "Check-In"}${activity.duration != null ? " • ${activity.duration}" : ""}',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: ThemeConfig.textSecondary,
-                      ),
+                  ),
+                  title: Text(
+                    activity.checkpointName,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: ThemeConfig.textPrimary,
                     ),
-                    trailing: Text(
-                      activity.time,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: ThemeConfig.textPrimary,
-                      ),
+                  ),
+                  subtitle: Text(
+                    '${activity.lastActivity == "check_out" ? "Check-Out" : "Check-In"}${activity.duration != null ? " • ${activity.duration}" : ""}',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: ThemeConfig.textSecondary,
+                    ),
+                  ),
+                  trailing: Text(
+                    activity.time,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: ThemeConfig.textPrimary,
                     ),
                   ),
                 ),
-              )),
+              ),
+            ),
+          ),
       ],
     );
   }

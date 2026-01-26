@@ -6,12 +6,14 @@ import 'config/theme_config.dart';
 import 'providers/auth_provider.dart';
 import 'providers/home_provider.dart';
 import 'screens/splash_screen.dart';
+import 'screens/login_screen.dart';
+
+// Global navigator key untuk akses navigation dari mana saja
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
-  // Ensure Flutter bindings are initialized
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Load environment variables with error handling
   try {
     await dotenv.load(fileName: ".env");
   } catch (e) {
@@ -19,7 +21,6 @@ Future<void> main() async {
     debugPrint('Using default API configuration');
   }
   
-  // Request location permission on app start
   await _requestLocationPermission();
   
   runApp(const MyApp());
@@ -54,8 +55,34 @@ class MyApp extends StatelessWidget {
         title: 'Driver App',
         theme: ThemeConfig.darkTheme,
         debugShowCheckedModeBanner: false,
+        navigatorKey: navigatorKey, // Set global navigator key
         home: const SplashScreen(),
       ),
     );
   }
+}
+
+// Function untuk handle unauthorized dari API service
+void handleSessionExpired() {
+  final context = navigatorKey.currentContext;
+  if (context == null) return;
+  
+  // Clear providers
+  context.read<AuthProvider>().logout();
+  context.read<HomeProvider>().stopAutoRefresh();
+  
+  // Show message
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text('Session telah berakhir. Silakan login kembali.'),
+      backgroundColor: Colors.red,
+      duration: Duration(seconds: 3),
+    ),
+  );
+  
+  // Navigate to login dan hapus semua route sebelumnya
+  Navigator.of(context).pushAndRemoveUntil(
+    MaterialPageRoute(builder: (_) => const LoginScreen()),
+    (route) => false,
+  );
 }

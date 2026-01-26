@@ -1,80 +1,91 @@
-import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'auth_service.dart';
 
 class ApiService {
-  // Timeout duration
-  static const Duration timeoutDuration = Duration(seconds: 30);
-
-  // Generic GET request
+  // Callback untuk handle unauthorized
+  static Function(BuildContext)? onUnauthorized;
+  
   static Future<Map<String, dynamic>> get(
     String url, {
     Map<String, String>? headers,
   }) async {
     try {
-      final response = await http
-          .get(
-            Uri.parse(url),
-            headers: headers ?? {'Content-Type': 'application/json'},
-          )
-          .timeout(timeoutDuration);
+      debugPrint('📤 GET: $url');
+      
+      final response = await http.get(
+        Uri.parse(url),
+        headers: headers ?? {'Content-Type': 'application/json'},
+      );
+
+      debugPrint('📥 Response status: ${response.statusCode}');
+      
+      // Check for unauthorized
+      if (response.statusCode == 401) {
+        debugPrint('❌ 401 Unauthorized - Session expired');
+        await _handleUnauthorized();
+        throw Exception('Session telah berakhir. Silakan login kembali.');
+      }
 
       return _handleResponse(response);
-    } on SocketException {
-      throw Exception('Tidak dapat terhubung ke server. Periksa koneksi internet Anda.');
-    } on TimeoutException {
-      throw Exception('Koneksi timeout. Server tidak merespon.');
-    } on FormatException {
-      throw Exception('Response format tidak valid.');
     } catch (e) {
-      throw Exception('Network error: $e');
+      debugPrint('❌ GET Error: $e');
+      rethrow;
     }
   }
 
-  // Generic POST request
   static Future<Map<String, dynamic>> post(
     String url, {
-    Map<String, dynamic>? body,
     Map<String, String>? headers,
+    Map<String, dynamic>? body,
   }) async {
     try {
-      final response = await http
-          .post(
-            Uri.parse(url),
-            headers: headers ?? {'Content-Type': 'application/json'},
-            body: body != null ? jsonEncode(body) : null,
-          )
-          .timeout(timeoutDuration);
+      debugPrint('📤 POST: $url');
+      if (body != null) {
+        debugPrint('📦 Body: $body');
+      }
+      
+      final response = await http.post(
+        Uri.parse(url),
+        headers: headers ?? {'Content-Type': 'application/json'},
+        body: body != null ? jsonEncode(body) : null,
+      );
+
+      debugPrint('📥 Response status: ${response.statusCode}');
+      
+      // Check for unauthorized
+      if (response.statusCode == 401) {
+        debugPrint('❌ 401 Unauthorized - Session expired');
+        await _handleUnauthorized();
+        throw Exception('Session telah berakhir. Silakan login kembali.');
+      }
 
       return _handleResponse(response);
-    } on SocketException {
-      throw Exception('Tidak dapat terhubung ke server. Periksa koneksi internet Anda.');
-    } on TimeoutException {
-      throw Exception('Koneksi timeout. Server tidak merespon.');
-    } on FormatException catch (e) {
-      throw Exception('Response format tidak valid: $e');
     } catch (e) {
-      throw Exception('Network error: $e');
+      debugPrint('❌ POST Error: $e');
+      rethrow;
     }
   }
 
-  // Handle response
   static Map<String, dynamic> _handleResponse(http.Response response) {
-    try {
-      print('🔍 Response status: ${response.statusCode}');
-      print('🔍 Response body: ${response.body}');
-      
-      final data = jsonDecode(response.body);
+    final body = utf8.decode(response.bodyBytes);
+    debugPrint('📄 Response body: $body');
 
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        return data;
-      } else {
-        throw Exception(data['message'] ?? 'Request failed');
-      }
-    } catch (e) {
-      if (e is Exception) rethrow;
-      throw Exception('Failed to parse response: $e');
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return jsonDecode(body);
+    } else {
+      final error = jsonDecode(body);
+      throw Exception(error['message'] ?? 'Request failed');
     }
+  }
+  
+  static Future<void> _handleUnauthorized() async {
+    // Clear auth data
+    await AuthService.clearAuthData();
+    
+    // Trigger callback untuk navigate ke login
+    // (Akan di-set dari main.dart atau app-level)
   }
 }

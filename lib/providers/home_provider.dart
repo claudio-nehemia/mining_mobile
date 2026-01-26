@@ -11,6 +11,7 @@ import '../services/location_service.dart';
 import '../services/checkin_service.dart';
 import '../services/checkout_service.dart';
 import '../services/location_tracking_service.dart';
+import '../main.dart' as main_app;
 
 class HomeProvider extends ChangeNotifier {
   HomeDataModel? _homeData;
@@ -23,16 +24,15 @@ class HomeProvider extends ChangeNotifier {
   String? _currentCheckpoint;
   String? _checkInTime;
   
-  // Checkout state
-  String? _checkoutRequestStatus; // 'pending', 'rejected', or null
+  String? _checkoutRequestStatus;
   int? _checkoutRequestId;
   double? _checkoutBiaya;
   
-  // Auto-refresh timer
   Timer? _autoRefreshTimer;
   bool _isAutoRefreshEnabled = true;
   static const Duration _refreshInterval = Duration(seconds: 10);
 
+  // Getters
   HomeDataModel? get homeData => _homeData;
   List<CheckPointModel> get nearbyCheckpoints => _nearbyCheckpoints;
   List<LogActivityModel> get todayHistory => _todayHistory;
@@ -47,7 +47,6 @@ class HomeProvider extends ChangeNotifier {
   double? get checkoutBiaya => _checkoutBiaya;
   bool get isAutoRefreshEnabled => _isAutoRefreshEnabled;
 
-  // Load home data
   Future<void> loadHomeData() async {
     _isLoading = true;
     _errorMessage = null;
@@ -56,7 +55,6 @@ class HomeProvider extends ChangeNotifier {
     try {
       debugPrint('🏠 Loading home data...');
       
-      // Get GPS location FIRST before loading any data
       debugPrint('📍 Getting GPS location first...');
       try {
         _currentPosition = await LocationService.getCurrentLocation();
@@ -72,22 +70,12 @@ class HomeProvider extends ChangeNotifier {
         }
       }
       
-      // Now load home data
       _homeData = await HomeService.getHomeData();
       debugPrint('✅ Home data loaded: ${_homeData?.driver.name}');
-      debugPrint('🚛 Truck: ${_homeData?.truck?.noUnit ?? "No truck"}');
-      debugPrint('💰 Saldo: ${_homeData?.saldo?.amount ?? 0}');
       notifyListeners();
       
-      // After loading home data, load history and nearby checkpoints with GPS
-      final lat = _currentPosition?.latitude ?? -6.2088; // Default Jakarta if GPS fails
+      final lat = _currentPosition?.latitude ?? -6.2088;
       final lng = _currentPosition?.longitude ?? 106.8456;
-      
-      if (_currentPosition != null) {
-        debugPrint('📍 Using real GPS for nearby checkpoints: $lat, $lng');
-      } else {
-        debugPrint('⚠️ Using default Jakarta coordinates: $lat, $lng');
-      }
       
       await Future.wait([
         loadTodayHistory(),
@@ -97,14 +85,24 @@ class HomeProvider extends ChangeNotifier {
       ]);
     } catch (e) {
       debugPrint('❌ Failed to load home data: $e');
-      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      final errorMsg = e.toString();
+      
+      // Check if it's a session expired error
+      if (errorMsg.contains('Session telah berakhir') || 
+          errorMsg.contains('Unauthenticated') ||
+          errorMsg.contains('401')) {
+        debugPrint('🚪 Session expired, triggering logout...');
+        main_app.handleSessionExpired();
+        return;
+      }
+      
+      _errorMessage = errorMsg.replaceAll('Exception: ', '');
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  // Load today's history
   Future<void> loadTodayHistory() async {
     try {
       debugPrint('📜 Loading today\'s history...');
@@ -113,10 +111,10 @@ class HomeProvider extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       debugPrint('❌ Failed to load today history: $e');
+      _handleServiceError(e);
     }
   }
 
-  // Load nearby checkpoints
   Future<void> loadNearbyCheckpoints(double lat, double lng) async {
     try {
       debugPrint('📍 Loading nearby checkpoints...');
@@ -129,23 +127,21 @@ class HomeProvider extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       debugPrint('❌ Failed to load nearby checkpoints: $e');
+      _handleServiceError(e);
     }
   }
 
-  // Turn on status
   Future<bool> turnOnStatus() async {
     try {
       debugPrint('🔄 Turning on status...');
       await HomeService.turnOnStatus();
       
-      // Start location tracking when status becomes active
       await LocationTrackingService.startTracking();
       
-      // Update status using copyWith
       if (_homeData != null) {
         _homeData = HomeDataModel(
           driver: _homeData!.driver.copyWith(status: 'active'),
-          truck: _homeData!.truck,
+          truck: _homeData!.truck?.copyWith(status: 'active'),
           saldo: _homeData!.saldo,
         );
         debugPrint('✅ Status updated to active');
@@ -155,13 +151,13 @@ class HomeProvider extends ChangeNotifier {
       return true;
     } catch (e) {
       debugPrint('❌ Failed to turn on status: $e');
+      _handleServiceError(e);
       _errorMessage = e.toString().replaceAll('Exception: ', '');
       notifyListeners();
       return false;
     }
   }
 
-  // Turn off status
   Future<bool> turnOffStatus({
     required String reasonType,
     String? reasonDetail,
@@ -173,14 +169,12 @@ class HomeProvider extends ChangeNotifier {
         reasonDetail: reasonDetail,
       );
       
-      // Stop location tracking
       LocationTrackingService.stopTracking();
       
-      // Update status using copyWith
       if (_homeData != null) {
         _homeData = HomeDataModel(
           driver: _homeData!.driver.copyWith(status: 'inactive'),
-          truck: _homeData!.truck,
+          truck: _homeData!.truck?.copyWith(status: 'maintenance'),
           saldo: _homeData!.saldo,
         );
         debugPrint('✅ Status updated to inactive');
@@ -190,53 +184,22 @@ class HomeProvider extends ChangeNotifier {
       return true;
     } catch (e) {
       debugPrint('❌ Failed to turn off status: $e');
+      _handleServiceError(e);
       _errorMessage = e.toString().replaceAll('Exception: ', '');
       notifyListeners();
       return false;
     }
   }
 
-  // End maintenance
-  Future<bool> endMaintenance() async {
-    try {
-      debugPrint('🔄 Ending maintenance...');
-      await HomeService.endMaintenance();
-      
-      // Start location tracking when status becomes active
-      await LocationTrackingService.startTracking();
-      
-      // Update status using copyWith
-      if (_homeData != null) {
-        _homeData = HomeDataModel(
-          driver: _homeData!.driver.copyWith(status: 'active'),
-          truck: _homeData!.truck?.copyWith(status: 'active'),
-          saldo: _homeData!.saldo,
-        );
-        debugPrint('✅ Maintenance ended, status updated to active');
-        notifyListeners();
-      }
-      
-      return true;
-    } catch (e) {
-      debugPrint('❌ Failed to end maintenance: $e');
-      _errorMessage = e.toString().replaceAll('Exception: ', '');
-      notifyListeners();
-      return false;
-    }
-  }
-
-  // Clear error
   void clearError() {
     _errorMessage = null;
     notifyListeners();
   }
 
-  // Check-in
-  Future<Map<String, dynamic>?> checkIn() async {
+  Future<Map<String, dynamic>?> checkInWithCheckpoint(int checkpointId) async {
     try {
-      debugPrint('🔄 Performing check-in...');
+      debugPrint('🔄 Performing check-in with checkpoint ID: $checkpointId');
       
-      // Get current GPS location
       Position position;
       if (_currentPosition != null) {
         position = _currentPosition!;
@@ -254,14 +217,13 @@ class HomeProvider extends ChangeNotifier {
       }
       
       final result = await CheckInService.checkIn(
-        position.latitude,
-        position.longitude,
+        checkpointId: checkpointId,
+        latitude: position.latitude,
+        longitude: position.longitude,
       );
       
-      // Update state
       _isCheckedIn = true;
       _currentCheckpoint = result['checkpoint_name'];
-      // Parse ISO timestamp and convert to local timezone
       if (result['check_in_time'] != null) {
         final utcTime = DateTime.parse(result['check_in_time']);
         final localTime = utcTime.toLocal();
@@ -273,20 +235,75 @@ class HomeProvider extends ChangeNotifier {
       debugPrint('✅ Check-in successful at: $_currentCheckpoint');
       
       notifyListeners();
-      
-      // Reload history to show new check-in
       await loadTodayHistory();
       
       return result;
     } catch (e) {
       debugPrint('❌ Failed to check-in: $e');
+      _handleServiceError(e);
       _errorMessage = e.toString().replaceAll('Exception: ', '');
       notifyListeners();
       rethrow;
     }
   }
 
-  // Load check-in status
+  Future<List<CheckPointModel>> loadAllCheckpoints() async {
+    try {
+      debugPrint('📍 Loading all checkpoints...');
+      
+      Position position;
+      if (_currentPosition != null) {
+        position = _currentPosition!;
+      } else {
+        try {
+          final newPosition = await LocationService.getCurrentLocation();
+          if (newPosition != null) {
+            position = newPosition;
+            _currentPosition = position;
+          } else {
+            position = Position(
+              latitude: -6.2088,
+              longitude: 106.8456,
+              timestamp: DateTime.now(),
+              accuracy: 0,
+              altitude: 0,
+              heading: 0,
+              speed: 0,
+              speedAccuracy: 0,
+              altitudeAccuracy: 0,
+              headingAccuracy: 0,
+            );
+          }
+        } catch (e) {
+          position = Position(
+            latitude: -6.2088,
+            longitude: 106.8456,
+            timestamp: DateTime.now(),
+            accuracy: 0,
+            altitude: 0,
+            heading: 0,
+            speed: 0,
+            speedAccuracy: 0,
+            altitudeAccuracy: 0,
+            headingAccuracy: 0,
+          );
+        }
+      }
+      
+      final checkpoints = await CheckInService.getAllCheckpoints(
+        latitude: position.latitude,
+        longitude: position.longitude,
+      );
+      
+      debugPrint('✅ Loaded ${checkpoints.length} checkpoints');
+      return checkpoints;
+    } catch (e) {
+      debugPrint('❌ Failed to load checkpoints: $e');
+      _handleServiceError(e);
+      rethrow;
+    }
+  }
+
   Future<void> loadCheckInStatus() async {
     try {
       debugPrint('🔄 Loading check-in status...');
@@ -296,7 +313,6 @@ class HomeProvider extends ChangeNotifier {
       if (isCheckedIn && status['checkpoint'] != null) {
         _isCheckedIn = true;
         _currentCheckpoint = status['checkpoint']['name'];
-        // Parse ISO timestamp and convert to local timezone
         if (status['check_in_time'] != null) {
           final utcTime = DateTime.parse(status['check_in_time']);
           final localTime = utcTime.toLocal();
@@ -306,7 +322,6 @@ class HomeProvider extends ChangeNotifier {
         }
         debugPrint('✅ Check-in active at: $_currentCheckpoint');
       } else {
-        // Clear check-in state ketika tidak ada check-in aktif
         _isCheckedIn = false;
         _currentCheckpoint = null;
         _checkInTime = null;
@@ -316,7 +331,7 @@ class HomeProvider extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       debugPrint('❌ Failed to load check-in status: $e');
-      // Clear state on error
+      _handleServiceError(e);
       _isCheckedIn = false;
       _currentCheckpoint = null;
       _checkInTime = null;
@@ -324,7 +339,6 @@ class HomeProvider extends ChangeNotifier {
     }
   }
 
-  // Request checkout dengan material data
   Future<Map<String, dynamic>> requestCheckout({
     required int checkpointId,
     required String namaMaterial,
@@ -340,7 +354,6 @@ class HomeProvider extends ChangeNotifier {
         namaKernet: namaKernet,
       );
       
-      // Update checkout state
       _checkoutRequestStatus = 'pending';
       _checkoutRequestId = result['request_id'];
       _checkoutBiaya = result['biaya_pemotongan']?.toDouble();
@@ -351,13 +364,13 @@ class HomeProvider extends ChangeNotifier {
       return result;
     } catch (e) {
       debugPrint('❌ Failed to request checkout: $e');
+      _handleServiceError(e);
       _errorMessage = e.toString().replaceAll('Exception: ', '');
       notifyListeners();
       rethrow;
     }
   }
 
-  // Load checkout status
   Future<void> loadCheckoutStatus() async {
     try {
       debugPrint('🔄 Loading checkout status...');
@@ -373,11 +386,9 @@ class HomeProvider extends ChangeNotifier {
         
         debugPrint('✅ Checkout status: $checkoutStatus');
         
-        // Jika approved, clear check-in dan reload
         if (checkoutStatus == 'approved') {
           await loadCheckInStatus();
           await loadTodayHistory();
-          // Clear checkout state karena sudah selesai
           _checkoutRequestStatus = null;
           _checkoutRequestId = null;
           _checkoutBiaya = null;
@@ -392,10 +403,10 @@ class HomeProvider extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       debugPrint('❌ Failed to load checkout status: $e');
+      _handleServiceError(e);
     }
   }
   
-  // Start auto-refresh
   void startAutoRefresh() {
     if (!_isAutoRefreshEnabled) return;
     
@@ -410,14 +421,12 @@ class HomeProvider extends ChangeNotifier {
     });
   }
   
-  // Stop auto-refresh
   void stopAutoRefresh() {
     debugPrint('⏹️ Stopping auto-refresh');
     _autoRefreshTimer?.cancel();
     _autoRefreshTimer = null;
   }
   
-  // Toggle auto-refresh
   void toggleAutoRefresh(bool enabled) {
     _isAutoRefreshEnabled = enabled;
     if (enabled) {
@@ -428,22 +437,17 @@ class HomeProvider extends ChangeNotifier {
     notifyListeners();
   }
   
-  // Refresh data (lebih ringan dari loadHomeData)
   Future<void> refreshData() async {
     try {
-      // Refresh data penting tanpa loading indicator untuk seamless UX
       final oldSaldo = _homeData?.saldo?.amount;
       
-      // Refresh home data (termasuk saldo)
       _homeData = await HomeService.getHomeData();
       
-      // Check jika ada perubahan saldo
       final newSaldo = _homeData?.saldo?.amount;
       if (oldSaldo != null && newSaldo != null && oldSaldo != newSaldo) {
         debugPrint('💰 Saldo berubah: Rp $oldSaldo -> Rp $newSaldo');
       }
       
-      // Refresh status check-in dan checkout
       await Future.wait([
         loadCheckInStatus(),
         loadCheckoutStatus(),
@@ -453,7 +457,21 @@ class HomeProvider extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       debugPrint('❌ Failed to refresh data: $e');
-      // Tidak set error message agar tidak mengganggu UX
+      _handleServiceError(e, silent: true);
+    }
+  }
+  
+  // Helper untuk handle service errors termasuk session expired
+  void _handleServiceError(dynamic error, {bool silent = false}) {
+    final errorMsg = error.toString();
+    
+    if (errorMsg.contains('Session telah berakhir') || 
+        errorMsg.contains('Unauthenticated') ||
+        errorMsg.contains('401')) {
+      debugPrint('🚪 Session expired detected in service call');
+      if (!silent) {
+        main_app.handleSessionExpired();
+      }
     }
   }
   

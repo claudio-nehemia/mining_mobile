@@ -114,7 +114,7 @@ class HomeService {
     }
   }
 
-  // Turn on driver status
+  // Turn on driver status (also clears maintenance if truck was in maintenance)
   static Future<void> turnOnStatus() async {
     try {
       final token = await AuthService.getToken();
@@ -133,7 +133,6 @@ class HomeService {
       if (!response['success']) {
         final message = response['message'] ?? 'Failed to turn on status';
         
-        // Tambahkan detail error jika ada
         String detailMessage = message;
         if (response['errors'] != null) {
           final errors = response['errors'] as Map<String, dynamic>;
@@ -151,7 +150,7 @@ class HomeService {
     }
   }
 
-  // Turn off driver status
+  // Turn off driver status (also sets truck to maintenance)
   static Future<void> turnOffStatus({
     required String reasonType,
     String? reasonDetail,
@@ -182,7 +181,6 @@ class HomeService {
       if (!response['success']) {
         final message = response['message'] ?? 'Failed to turn off status';
         
-        // Tambahkan detail error jika ada
         String detailMessage = message;
         if (response['errors'] != null) {
           final errors = response['errors'] as Map<String, dynamic>;
@@ -199,41 +197,7 @@ class HomeService {
       throw Exception('Gagal menonaktifkan status: ${e.toString()}');
     }
   }
-
-  // End maintenance
-  static Future<void> endMaintenance() async {
-    try {
-      final token = await AuthService.getToken();
-      if (token == null) {
-        throw Exception('No token found');
-      }
-
-      final response = await ApiService.post(
-        '${ApiConfig.baseUrl}/driver/home/status/end-maintenance',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (!response['success']) {
-        final message = response['message'] ?? 'Failed to end maintenance';
-        
-        // Tambahkan detail error jika ada
-        String detailMessage = message;
-        if (response['errors'] != null) {
-          final errors = response['errors'] as Map<String, dynamic>;
-          final errorDetails = errors.values.map((e) => e.toString()).join(', ');
-          detailMessage = '$message: $errorDetails';
-        }
-        
-        throw Exception(detailMessage);
-      }
-    } catch (e) {
-      if (e is Exception) {
-        rethrow;
-      }
-      throw Exception('Gagal mengakhiri maintenance: ${e.toString()}');
-    }
-  }
+  
+  // Note: endMaintenance function removed - use turnOnStatus instead
+  // turnOnStatus will automatically clear maintenance if truck is in maintenance
 }
